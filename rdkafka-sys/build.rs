@@ -24,7 +24,7 @@ where
     } else {
         PathBuf::from(cmd)
     };
-    eprintln!(
+    println!(
         "Running command: \"{} {}\" in dir: {}",
         cmd.display(),
         args.join(" "),
@@ -41,7 +41,7 @@ where
 
 fn main() {
     if env::var("CARGO_FEATURE_DYNAMIC_LINKING").is_ok() {
-        eprintln!("librdkafka will be linked dynamically");
+        println!("librdkafka will be linked dynamically");
 
         let librdkafka_version = match env!("CARGO_PKG_VERSION")
             .split('+')
@@ -59,17 +59,17 @@ fn main() {
 
         match pkg_probe {
             Ok(library) => {
-                eprintln!("librdkafka found on the system:");
-                eprintln!("  Name: {:?}", library.libs);
-                eprintln!("  Path: {:?}", library.link_paths);
-                eprintln!("  Version: {}", library.version);
+                println!("librdkafka found on the system:");
+                println!("  Name: {:?}", library.libs);
+                println!("  Path: {:?}", library.link_paths);
+                println!("  Version: {}", library.version);
             }
             Err(err) => {
-                eprintln!(
+                println!(
                     "librdkafka {} cannot be found on the system: {}",
                     librdkafka_version, err
                 );
-                eprintln!("Dynamic linking failed. Exiting.");
+                println!("Dynamic linking failed. Exiting.");
                 process::exit(1);
             }
         }
@@ -80,10 +80,10 @@ fn main() {
             assert!(env::set_current_dir(rdkafkasys_root).is_ok());
         }
 
-        eprintln!("Setting up submodules");
+        println!("Setting up submodules");
         run_command_or_fail("../", "git", &["submodule", "update", "--init"]);
 
-        eprintln!("Building and linking librdkafka statically");
+        println!("Building and linking librdkafka statically");
         build_librdkafka();
     }
 }
