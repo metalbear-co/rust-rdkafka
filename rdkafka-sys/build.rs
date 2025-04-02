@@ -83,6 +83,9 @@ fn main() {
         println!("Setting up submodules");
         run_command_or_fail("../", "git", &["submodule", "update", "--init"]);
 
+        println!("Checking librdkafka submodule state");
+        run_command_or_fail("./librdkafka", "git", &["status"]);
+
         println!("Building and linking librdkafka statically");
         build_librdkafka();
     }
