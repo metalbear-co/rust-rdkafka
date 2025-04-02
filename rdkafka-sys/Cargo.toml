@@ -93,8 +93,10 @@ external-lz4 = ["lz4-sys"]
 # Deprecated alias for the `external-lz4` feature.
 external_lz4 = ["external-lz4"]
 
-# Link against precompiled static build of librdkafka
-static-linking = []
+# Link against precompiled static build of librdkafka.
+# This feature requires providing `DEP_LIBRDKAFKA_STATIC_ROOT` environment variable,
+# pointing to directory with librdkafka artifacts.
+prebuilt-static = []
 
 [package.metadata.docs.rs]
 # docs.rs doesn't allow writing to ~/.cargo/registry (reasonably), so we have to
