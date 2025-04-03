@@ -79,22 +79,20 @@ fn main() {
             println!("cargo:rustc-link-lib=static=rdkafka");
             println!("cargo:root={}", rdkafka_dir);
         } else {
-            eprintln!("Path to DEP_LIBRDKAFKA_STATIC_ROOT not set. Static linking failed. Exiting.");
+            eprintln!(
+                "Path to DEP_LIBRDKAFKA_STATIC_ROOT not set. Static linking failed. Exiting."
+            );
             process::exit(1);
         }
         eprintln!("librdkafka will be linked statically using prebuilt binaries");
-
-    }
-        else {
+    } else {
         // Ensure that we are in the right directory
         let rdkafkasys_root = Path::new("rdkafka-sys");
         if rdkafkasys_root.exists() {
             assert!(env::set_current_dir(rdkafkasys_root).is_ok());
         }
-        if !Path::new("librdkafka/LICENSE").exists() {
-            eprintln!("Setting up submodules");
-            run_command_or_fail("../", "git", &["submodule", "update", "--init"]);
-        }
+        // eprintln!("Setting up submodules");
+        // run_command_or_fail("../", "git", &["submodule", "update", "--init", "--force"]);
         eprintln!("Building and linking librdkafka statically");
         build_librdkafka();
     }
@@ -214,7 +212,23 @@ fn build_librdkafka() {
 
 #[cfg(feature = "cmake-build")]
 fn build_librdkafka() {
-    let mut config = cmake::Config::new("librdkafka");
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR missing");
+    let build_dir = Path::new(&out_dir).join("librdkafka-build");
+
+    if build_dir.exists() {
+        fs::remove_dir_all(&build_dir).expect("failed to remove exisiting librdkafka build dir");
+    }
+
+    fs::create_dir_all(&build_dir).expect("failed to create librdkafka build dir");
+
+    println!("Cloning librdkafka");
+    run_command_or_fail(
+        ".",
+        "cp",
+        &["-a", "librdkafka/.", build_dir.to_str().unwrap()],
+    );
+
+    let mut config = cmake::Config::new(&build_dir);
     let mut cmake_library_paths = vec![];
 
     config
