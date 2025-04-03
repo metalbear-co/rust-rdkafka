@@ -91,8 +91,8 @@ fn main() {
         if rdkafkasys_root.exists() {
             assert!(env::set_current_dir(rdkafkasys_root).is_ok());
         }
-        // eprintln!("Setting up submodules");
-        // run_command_or_fail("../", "git", &["submodule", "update", "--init", "--force"]);
+        eprintln!("Setting up submodules");
+        run_command_or_fail("../", "git", &["submodule", "update", "--init", "--force"]);
         eprintln!("Building and linking librdkafka statically");
         build_librdkafka();
     }
