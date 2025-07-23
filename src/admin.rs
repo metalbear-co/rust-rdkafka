@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::ffi::{c_void, CStr, CString};
 use std::future::Future;
+use std::ops::Not;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use futures_util::ready;
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
-use crate::client::{Client, ClientContext, DefaultClientContext, NativeQueue};
+use crate::client::{Client, ClientContext, DefaultClientContext, EventPollResult, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
 use crate::error::{IsError, KafkaError, KafkaResult};
 use crate::log::{trace, warn};
@@ -37,8 +38,8 @@ use crate::TopicPartitionList;
 /// `AdminClient` provides programmatic access to managing a Kafka cluster,
 /// notably manipulating topics, partitions, and configuration paramaters.
 pub struct AdminClient<C: ClientContext> {
-    client: Client<C>,
-    queue: Arc<NativeQueue>,
+    client: Arc<Client<C>>,
+    queue: NativeQueue,
     should_stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -389,9 +390,16 @@ impl FromClientConfig for AdminClient<DefaultClientContext> {
     }
 }
 
-impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
+impl<C: 'static + ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
     fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<AdminClient<C>> {
         let native_config = config.create_native_config()?;
+        // Enable OAuth token refresh events.
+        unsafe {
+            rdsys::rd_kafka_conf_set_events(
+                native_config.ptr(),
+                rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH,
+            )
+        };
         // librdkafka only provides consumer and producer types. We follow the
         // example of the Python bindings in choosing to pretend to be a
         // producer, as producer clients are allegedly more lightweight. [0]
@@ -403,9 +411,10 @@ impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
             RDKafkaType::RD_KAFKA_PRODUCER,
             context,
         )?;
-        let queue = Arc::new(client.new_native_queue());
+        let client = Arc::new(client);
+        let queue = client.main_queue();
         let should_stop = Arc::new(AtomicBool::new(false));
-        let handle = start_poll_thread(queue.clone(), should_stop.clone());
+        let handle = start_poll_thread(should_stop.clone(), client.clone());
         Ok(AdminClient {
             client,
             queue,
@@ -427,25 +436,42 @@ impl<C: ClientContext> Drop for AdminClient<C> {
     }
 }
 
-fn start_poll_thread(queue: Arc<NativeQueue>, should_stop: Arc<AtomicBool>) -> JoinHandle<()> {
+/// Starts a background thread that polls the queue of [`AdminClient::client`]'s main queue.
+///
+/// Some events are handled internally in [`Client::poll_event`] (e.g. OAuth token refresh).
+///
+/// For events that are not handled in [`Client::poll_event`], we check their [`rdsys::rd_kafka_event_opaque`].
+/// If it's not a null pointer, we cast it to `Box<oneshot::Sender>`, and send the event through that channel.
+/// The event should then be handled by the code that supplied the [`oneshot::Sender`] in [`rdsys::rd_kafka_AdminOptions_s`]' opaque data.
+fn start_poll_thread<C: 'static + ClientContext>(
+    should_stop: Arc<AtomicBool>,
+    client: Arc<Client<C>>,
+) -> JoinHandle<()> {
     thread::Builder::new()
         .name("admin client polling thread".into())
         .spawn(move || {
             trace!("Admin polling thread loop started");
+            let queue = client.main_queue();
+
             loop {
-                let event = queue.poll(Duration::from_millis(100));
-                if event.is_null() {
-                    if should_stop.load(Ordering::Relaxed) {
-                        // We received nothing and the thread should stop, so
-                        // break the loop.
-                        break;
+                match client.poll_event(&queue, Duration::from_millis(100)) {
+                    EventPollResult::EventConsumed => {}
+                    EventPollResult::None => {
+                        if should_stop.load(Ordering::Relaxed) {
+                            // We received nothing and the thread should stop, so
+                            // break the loop.
+                            break;
+                        }
                     }
-                    continue;
+                    EventPollResult::Event(event) => {
+                        let opaque = unsafe { rdsys::rd_kafka_event_opaque(event.ptr()) };
+                        if opaque.is_null().not() {
+                            let tx: Box<oneshot::Sender<NativeEvent>> =
+                                unsafe { IntoOpaque::from_ptr(opaque) };
+                            let _ = tx.send(event);
+                        }
+                    }
                 }
-                let event = unsafe { NativeEvent::from_ptr(event).unwrap() };
-                let tx: Box<oneshot::Sender<NativeEvent>> =
-                    unsafe { IntoOpaque::from_ptr(rdsys::rd_kafka_event_opaque(event.ptr())) };
-                let _ = tx.send(event);
             }
             trace!("Admin polling thread loop terminated");
         })
