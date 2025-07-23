@@ -48,9 +48,6 @@ use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
 pub trait ClientContext: Send + Sync {
-    /// Deprecated, use [`ClientContext::enable_refresh_oauth_token`] instead.
-    const ENABLE_REFRESH_OAUTH_TOKEN: bool = false;
-
     /// Whether to periodically refresh the SASL `OAUTHBEARER` token
     /// by calling [`ClientContext::generate_oauth_token`].
     ///
@@ -59,10 +56,8 @@ pub trait ClientContext: Send + Sync {
     ///
     /// This parameter is only relevant when using the `OAUTHBEARER` SASL
     /// mechanism.
-    ///
-    /// Default implementation returns the value from [`ClientContext::ENABLE_REFRESH_OAUTH_TOKEN`].
     fn enable_refresh_oauth_token(&self) -> bool {
-        Self::ENABLE_REFRESH_OAUTH_TOKEN
+        false
     }
 
     /// Receives log lines from librdkafka.
