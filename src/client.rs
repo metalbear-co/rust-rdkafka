@@ -56,7 +56,9 @@ pub trait ClientContext: Send + Sync {
     ///
     /// This parameter is only relevant when using the `OAUTHBEARER` SASL
     /// mechanism.
-    const ENABLE_REFRESH_OAUTH_TOKEN: bool = false;
+    fn enable_refresh_oauth_token(&self) -> bool {
+        false
+    }
 
     /// Receives log lines from librdkafka.
     ///
@@ -325,7 +327,7 @@ impl<C: ClientContext> Client<C> {
                     return EventPollResult::Event(ev);
                 }
                 rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH => {
-                    if C::ENABLE_REFRESH_OAUTH_TOKEN {
+                    if self.context().enable_refresh_oauth_token() {
                         self.handle_oauth_refresh_event(ev.ptr());
                     }
                     return EventPollResult::EventConsumed;
@@ -574,12 +576,6 @@ impl<C: ClientContext> Client<C> {
             ))
             .unwrap()
         })
-    }
-
-    /// Returns a NativeQueue from the current client. The NativeQueue shouldn't
-    /// outlive the client it was generated from.
-    pub(crate) fn new_native_queue(&self) -> NativeQueue {
-        unsafe { NativeQueue::from_ptr(rdsys::rd_kafka_queue_new(self.native_ptr())).unwrap() }
     }
 
     pub(crate) fn consumer_queue(&self) -> Option<NativeQueue> {
